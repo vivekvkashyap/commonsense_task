@@ -13,6 +13,7 @@ from flax.training import checkpoints
 import logging
 import optax
 import math
+from tqdm import tqdm
 
 from pathlib import Path
 from typing import Callable
@@ -214,16 +215,16 @@ def main():
           eval_metrics.append(eval_metric)
           progress_bar_eval.update(1)
           if idx%5==0:
-            print('eval_step_loss{idx}:',flax.jax_utils.unreplicate(eval_metric)['loss'].item(),
-                  'eval_step_acc{idx}':jax.device_get(eval_metric['accuracy']).mean().item())
+            logger.info(f"eval_step_loss{idx}:{flax.jax_utils.unreplicate(eval_metric)['loss'].item()},
+                  eval_step_acc{idx}:{jax.device_get(eval_metric['accuracy']).mean().item()}")
             summary_writer.scalar('eval_loss',flax.jax_utils.unreplicate(eval_loss_metric)['loss'].item(),idx)
             summary_writer.scalar('eval_accuracy', jax.device_get(eval_acc_metrics['accuracy']).mean().item(),idx)
             #correct
-    print('Epoch {epoch} done')
-    print('Train loss:',jax.device_get(jnp.array(train_loss_metrics)).mean().item(),
-          'Train accuracy:',jax.device_get(jnp.array(train_acc_metrics)).mean().item())
-    print('Eval loss:',jax.device_get(jnp.array(eval_loss_metrics)).mean().item(),
-          'Eval accuracy:',jax.device_get(jnp.array(eval_acc_metrics)).mean().item())
+    logger.info(f"Epoch {epoch} done")
+    logger.info(f"Train loss:{jax.device_get(jnp.array(train_loss_metrics)).mean().item()},
+                Train accuracy:{jax.device_get(jnp.array(train_acc_metrics)).mean().item()}"")
+    logger.info(f"Eval loss:{jax.device_get(jnp.array(eval_loss_metrics)).mean().item()},
+          Eval accuracy:{jax.device_get(jnp.array(eval_acc_metrics)).mean().item()}"")
   summary_writer.flush()
 
 if __name__ == "__main__":
