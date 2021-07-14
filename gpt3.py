@@ -25,11 +25,8 @@ from transformers import GPT2Config,GPT2Tokenizer
 
 from model_file  import FlaxGPT2ForMultipleChoice
 
-#logger = logging.getLogger()
-#logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
-logger.addHandler(handler)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 def main():
 
@@ -123,29 +120,34 @@ def main():
                           loss_function=loss_function)
                       
   def train_step(state,batch,dropout_rng):
-    targets=batch.pop("label")
-    dropout_rng,new_dropout_rng=jax.random.split(dropout_rng)
-    def loss_function(params):
-      logits=state.apply_fn(**batch,params=params,dropout_rng=dropout_rng,train=True)[0]
-      loss=state.loss_function(logits,targets)
-      return loss
-
-    grad_function=jax.value_and_grad(loss_function)
-    loss,grad=grad_function(state.params)
-    grad=jax.lax.pmean(grad,"batch")
-    new_state=state.apply_gradients(grads=grad)
-    #Added.
-    logits=new_state.apply_fn(**batch,params=new_state.params,dropout_rng=dropout_rng,train=True)[0]
-    accuracy=jnp.equal(jnp.argmax(logits,axis=-1),targets)
-    metrics=jax.lax.pmean({"loss":loss,"learning_rate":learning_rate_function(state.step),'accuracy':accuracy},axis_name="batch")
-    return new_state,metrics,new_dropout_rng
+      targets=batch.pop("label")
+      dropout_rng,new_dropout_rng=jax.random.split(dropout_rng)
+      def loss_function(params):
+          logits=state.apply_fn(**batch,params=params,dropout_rng=dropout_rng,train=True)[0]
+          loss=state.loss_function(logits,targets)
+          return loss
+      grad_function=jax.value_and_grad(loss_function)
+      loss,grad=grad_function(state.params)
+      grad=jax.lax.pmean(grad,"batch")
+      new_state=state.apply_gradients(grads=grad)
+        #Added.
+      logits=new_state.apply_fn(**batch,params=new_state.params,dropout_rng=dropout_rng,train=True)[0]
+      accuracy=jnp.equal(jnp.argmax(logits,axis=-1),targets)
+      metrics=jax.lax.pmean({"loss":loss,"learning_rate":learning_rate_function(state.step),'accuracy':accuracy},axis_name="batch")
+      return new_state,metrics,new_dropout_rng
 
   parallel_train_step = jax.pmap(train_step, axis_name="batch", donate_argnums=(0,))
 
   def eval_step(state, batch):
-      
+      targets=batch.pop('label')
       logits = state.apply_fn(**batch, params=state.params, train=False)
-      return state.logits_function(logits)
+      loss=state.loss_function(logits,targets)
+      predictions=state.logits_function(logits)
+      eval_accuracy=jnp.equal(predictions,targets)
+      #eval_acc=jnp.equal(predictions,targets)
+      metrics=jax.lax.pmean({"loss":loss,'accuracy':eval_accuracy},axis_name="batch")
+      #return state.logits_function(logits)  #(8,4)
+      return targets,predictions,metrics
 
   parallel_eval_step = jax.pmap(eval_step, axis_name="batch")
 
@@ -215,16 +217,13 @@ def main():
           eval_metrics.append(eval_metric)
           progress_bar_eval.update(1)
           if idx%5==0:
-            logger.info(f"eval_step_loss{idx}:{flax.jax_utils.unreplicate(eval_metric)['loss'].item()},
-                  eval_step_acc{idx}:{jax.device_get(eval_metric['accuracy']).mean().item()}")
+            logger.info(f"eval_step_loss{idx}:{flax.jax_utils.unreplicate(eval_metric)['loss'].item()} eval_step_acc{idx}:{jax.device_get(eval_metric['accuracy']).mean().item()}")
             summary_writer.scalar('eval_loss',flax.jax_utils.unreplicate(eval_loss_metric)['loss'].item(),idx)
             summary_writer.scalar('eval_accuracy', jax.device_get(eval_acc_metrics['accuracy']).mean().item(),idx)
             #correct
     logger.info(f"Epoch {epoch} done")
-    logger.info(f"Train loss:{jax.device_get(jnp.array(train_loss_metrics)).mean().item()},
-                Train accuracy:{jax.device_get(jnp.array(train_acc_metrics)).mean().item()}"")
-    logger.info(f"Eval loss:{jax.device_get(jnp.array(eval_loss_metrics)).mean().item()},
-          Eval accuracy:{jax.device_get(jnp.array(eval_acc_metrics)).mean().item()}"")
+    logger.info(f"Train loss:{jax.device_get(jnp.array(train_loss_metrics)).mean().item()} Train accuracy:{jax.device_get(jnp.array(train_acc_metrics)).mean().item()}")
+    logger.info(f"Eval loss:{jax.device_get(jnp.array(eval_loss_metrics)).mean().item()} Eval accuracy:{jax.device_get(jnp.array(eval_acc_metrics)).mean().item()}")
   summary_writer.flush()
 
 if __name__ == "__main__":
