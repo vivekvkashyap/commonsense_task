@@ -19,6 +19,8 @@ from datasets import Dataset
 
 from model_file import FlaxGPT2ForMultipleChoice
 
+import logging
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
